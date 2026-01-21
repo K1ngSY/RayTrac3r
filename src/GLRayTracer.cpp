@@ -1015,14 +1015,15 @@ vec3 traceColor(in Ray r, inout SeedType seed) {
 }
 
 void main() {
-    ivec2 fragCoord = ivec2(gl_FragCoord.xy);
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec2 pixelCenter = vec2(pixel) + vec2(0.5);
     vec2 imgSize = camera.resolution;
     vec2 rImgSize = 1.0 / vec2(imgSize);
 
-    if (fragCoord.x < tileRect.x || fragCoord.y < tileRect.y ||
-        fragCoord.x >= (tileRect.x + tileRect.z) ||
-        fragCoord.y >= (tileRect.y + tileRect.w)) {
-        fragColor = texture(previousFrame, vec2(fragCoord) * rImgSize);
+    if (pixel.x < tileRect.x || pixel.y < tileRect.y ||
+        pixel.x >= (tileRect.x + tileRect.z) ||
+        pixel.y >= (tileRect.y + tileRect.w)) {
+        fragColor = texture(previousFrame, pixelCenter * rImgSize);
         return;
     }
 
@@ -1037,7 +1038,7 @@ void main() {
     float viewportWidth = viewportHeight * viewportRatio;
     vec2 viewport = vec2(viewportWidth, viewportHeight);
 
-    vec3 uv = vec3(fragCoord * rImgSize * 2.0 - 1.0, 0);
+    vec3 uv = vec3(pixelCenter * rImgSize * 2.0 - 1.0, 0);
     uv = viewportWidth * 0.5 * uv.x * camera.right
        + viewportHeight * 0.5 * uv.y * camera.up
        + focalLength * camera.forward
@@ -1052,7 +1053,7 @@ void main() {
     float rssq = 1.0 / ssq;
     for (int i = 0; i < ssq; ++i) {
         for (int j = 0; j < ssq; ++j) {
-            seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), tileSampleCount, uint(j + i * ssq)));
+            seed = SeedType(hashSeed(uint(pixel.x), uint(pixel.y), tileSampleCount, uint(j + i * ssq)));
             Ray r;
             r.origin = cameraCenter;
             r.direction = uv + ((j + randFloat(seed)) * rssq) * rImgSize.x * camera.right + ((i + randFloat(seed)) * rssq) * rImgSize.y * camera.up;
@@ -1064,7 +1065,7 @@ void main() {
     color *= rssq * rssq;
 #else
     for (int i = 0; i < camera.rayPerPixel; ++i) {
-        seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), tileSampleCount, uint(i)));
+        seed = SeedType(hashSeed(uint(pixel.x), uint(pixel.y), tileSampleCount, uint(i)));
         Ray r;
         r.origin = cameraCenter;
         r.direction = uv + randFloat(seed) * rImgSize.x * camera.right + randFloat(seed) * rImgSize.y * camera.up;
@@ -1074,7 +1075,7 @@ void main() {
     color /= camera.rayPerPixel;
 #endif
 
-    vec3 prev = texture(previousFrame, vec2(fragCoord) * rImgSize).rgb;
+    vec3 prev = texture(previousFrame, pixelCenter * rImgSize).rgb;
     float sampleCount = float(tileSampleCount);
     color = (prev * (sampleCount - 1.0) + color) / sampleCount;
 

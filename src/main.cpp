@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
 
         // Initialize Camera
         RayCamera camera;
-        camera.rayPerPixel = 9;
+        camera.rayPerPixel = 36;
         camera.bounces = 5;
         camera.fov = 50;
         camera.resolution = { width, height };
