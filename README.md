@@ -51,6 +51,10 @@ cmake --build . --config Release
 .\Release\raytracer.exe
 ```
 
+## Documentation
+
+For detailed architecture analysis, performance optimization guide, and CUDA migration roadmap, please refer to [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Gallery
 
 ## Salle de Bain by Benedikt Bitterli

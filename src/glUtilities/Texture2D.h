@@ -30,6 +30,7 @@ namespace gl {
         inline i32 getWidth() { return con.width; }
         inline i32 getHeight() { return con.height; }
         inline i32 getBpp() { return con.bpp; }
+        inline u32 getId() const { return m_id; }
 
     };
 

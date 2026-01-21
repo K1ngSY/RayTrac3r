@@ -37,6 +37,7 @@ namespace gl {
         void setUniform2f(const std::string &name, const glm::vec2 &v);
         void setUniform2f(const std::string &name, f32 *v);
         void setUniform2f(const std::string &name, f32 v0, f32 v1);
+        void setUniform4i(const std::string &name, i32 v0, i32 v1, i32 v2, i32 v3);
         void setUniform1u(const std::string &name, u32 v0);
         void setUniform1i(const std::string &name, i32 v0);
         void setUniform1f(const std::string &name, f32 v0);

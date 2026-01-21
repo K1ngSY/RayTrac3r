@@ -1,11 +1,14 @@
-#include "RayTracer.h"
+#include "GLRayTracer.h"
 
 #include "glUtilities/ShaderProgram.h"
 #include "glUtilities/Texture2D.h"
+#include "glUtilities/Framebuffer.h"
 
 #include "RayScene.h"
 
 #include <glad/glad.h>
+#include <algorithm>
+#include <iostream>
 
 static const char *vertexShaderSource = R"(
 #version 330 core
@@ -126,10 +129,11 @@ uniform isamplerBuffer materialTexturesBuffer;
 
 uniform int objectCount;
 uniform int modelsCount;
-uniform uint frameCount;
 uniform vec3 skyColor;
 
 uniform Camera camera;
+uniform ivec4 tileRect;        // x, y, width, height
+uniform uint tileSampleCount;  // per-tile accumulation count
 
 // === Buffer Utilities ===
 float samplerLoadFloat(samplerBuffer buffer, inout int index) {
@@ -1015,6 +1019,13 @@ void main() {
     vec2 imgSize = camera.resolution;
     vec2 rImgSize = 1.0 / vec2(imgSize);
 
+    if (fragCoord.x < tileRect.x || fragCoord.y < tileRect.y ||
+        fragCoord.x >= (tileRect.x + tileRect.z) ||
+        fragCoord.y >= (tileRect.y + tileRect.w)) {
+        fragColor = texture(previousFrame, vec2(fragCoord) * rImgSize);
+        return;
+    }
+
     vec3 lookat = camera.forward + camera.position;
     vec3 cameraCenter = camera.position;
 
@@ -1041,7 +1052,7 @@ void main() {
     float rssq = 1.0 / ssq;
     for (int i = 0; i < ssq; ++i) {
         for (int j = 0; j < ssq; ++j) {
-            seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), frameCount, uint(j + i * ssq)));
+            seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), tileSampleCount, uint(j + i * ssq)));
             Ray r;
             r.origin = cameraCenter;
             r.direction = uv + ((j + randFloat(seed)) * rssq) * rImgSize.x * camera.right + ((i + randFloat(seed)) * rssq) * rImgSize.y * camera.up;
@@ -1053,7 +1064,7 @@ void main() {
     color *= rssq * rssq;
 #else
     for (int i = 0; i < camera.rayPerPixel; ++i) {
-        seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), frameCount, uint(i)));
+        seed = SeedType(hashSeed(uint(fragCoord.x), uint(fragCoord.y), tileSampleCount, uint(i)));
         Ray r;
         r.origin = cameraCenter;
         r.direction = uv + randFloat(seed) * rImgSize.x * camera.right + randFloat(seed) * rImgSize.y * camera.up;
@@ -1063,15 +1074,67 @@ void main() {
     color /= camera.rayPerPixel;
 #endif
 
-    color = (texture(previousFrame, vec2(gl_FragCoord.xy) * rImgSize).rgb * (frameCount - 1.0) + color) / float(frameCount);
+    vec3 prev = texture(previousFrame, vec2(fragCoord) * rImgSize).rgb;
+    float sampleCount = float(tileSampleCount);
+    color = (prev * (sampleCount - 1.0) + color) / sampleCount;
 
     fragColor = vec4(color, 1.0);
 }
 )";
 
-#include <iostream>
+static void clearTexture(gl::Texture2D &texture) {
+    gl::Framebuffer framebuffer;
+    framebuffer.bind();
+    framebuffer.attachTexture(texture);
+    glViewport(0, 0, texture.getWidth(), texture.getHeight());
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    framebuffer.unbind();
+}
 
-bool RayTracer::initialize(glm::ivec2 resolution) {
+void GLRayTracer::TileScheduler::configure(glm::ivec2 resolution, glm::ivec2 tileSize) {
+    m_resolution = { std::max(1, resolution.x), std::max(1, resolution.y) };
+    m_tileSize = { std::max(1, tileSize.x), std::max(1, tileSize.y) };
+    m_tilesX = (m_resolution.x + m_tileSize.x - 1) / m_tileSize.x;
+    m_tilesY = (m_resolution.y + m_tileSize.y - 1) / m_tileSize.y;
+    m_currentTile = 0;
+    m_tileSampleCounts.assign(m_tilesX * m_tilesY, 0);
+}
+
+void GLRayTracer::TileScheduler::resetSamples() {
+    std::fill(m_tileSampleCounts.begin(), m_tileSampleCounts.end(), 0);
+    m_currentTile = 0;
+}
+
+GLRayTracer::TileRect GLRayTracer::TileScheduler::getTileRect(i32 tileIndex) const {
+    if (m_tilesX <= 0 || m_tilesY <= 0) {
+        return {};
+    }
+
+    i32 tileX = tileIndex % m_tilesX;
+    i32 tileY = tileIndex / m_tilesX;
+
+    i32 x = tileX * m_tileSize.x;
+    i32 y = tileY * m_tileSize.y;
+    i32 width = std::min(m_tileSize.x, m_resolution.x - x);
+    i32 height = std::min(m_tileSize.y, m_resolution.y - y);
+    return { x, y, width, height };
+}
+
+GLRayTracer::TileInfo GLRayTracer::TileScheduler::nextTile() {
+    if (!isValid() || m_tileSampleCounts.empty()) {
+        return {};
+    }
+
+    i32 tileIndex = m_currentTile;
+    TileRect rect = getTileRect(tileIndex);
+    u32 sampleCount = ++m_tileSampleCounts[tileIndex];
+    m_currentTile = (m_currentTile + 1) % (m_tilesX * m_tilesY);
+    return { rect, sampleCount };
+}
+
+bool GLRayTracer::initialize(glm::ivec2 resolution) {
+    m_resolution = resolution;
     m_shader = std::make_unique<gl::ShaderProgram>();
     m_shader->attachShaderCode(GL_VERTEX_SHADER, vertexShaderSource);
     m_shader->attachShaderCode(GL_FRAGMENT_SHADER, fragmentShaderSource);
@@ -1095,10 +1158,15 @@ bool RayTracer::initialize(glm::ivec2 resolution) {
 
     m_frames[0] = std::make_unique<gl::Texture2D>(con);
     m_frames[1] = std::make_unique<gl::Texture2D>(con);
+
+    clearTexture(*m_frames[0]);
+    clearTexture(*m_frames[1]);
+
+    m_tileScheduler.configure(resolution, m_tileSize);
     return true;
 }
 
-void RayTracer::renderToTexture(const RayCamera &camera, const RayScene &scene) {
+void GLRayTracer::renderToTexture(const RayCamera &camera, const RayScene &scene) {
     m_shader->bind();
 
     getPreviousFrame().bind(0);
@@ -1121,7 +1189,6 @@ void RayTracer::renderToTexture(const RayCamera &camera, const RayScene &scene) 
 
     m_shader->setUniform1i("objectCount", scene.getObjectsCount());
     m_shader->setUniform1i("modelsCount", scene.getModelsCount());
-    m_shader->setUniform1u("frameCount", m_frameCount);
     m_shader->setUniform3f("skyColor", scene.getSkyColor());
 
     m_shader->setUniform1f("camera.fov", camera.fov);
@@ -1133,11 +1200,15 @@ void RayTracer::renderToTexture(const RayCamera &camera, const RayScene &scene) 
     m_shader->setUniform1i("camera.bounces", camera.bounces);
     m_shader->setUniform1i("camera.rayPerPixel", camera.rayPerPixel);
 
-    m_frameIndex = !m_frameIndex;
-    ++m_frameCount;
+    TileInfo tile = m_tileScheduler.nextTile();
+    m_shader->setUniform4i("tileRect", tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
+    m_shader->setUniform1u("tileSampleCount", std::max(1u, tile.sampleCount));
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
 }
 
-void RayTracer::changeResolution(glm::ivec2 resolution) {
+void GLRayTracer::changeResolution(glm::ivec2 resolution) {
+    m_resolution = resolution;
     gl::Texture2D::Construct con;
     con.width = resolution.x;
     con.height = resolution.y;
@@ -1148,10 +1219,32 @@ void RayTracer::changeResolution(glm::ivec2 resolution) {
 
     m_frames[0] = std::make_unique<gl::Texture2D>(con);
     m_frames[1] = std::make_unique<gl::Texture2D>(con);
+
+    clearTexture(*m_frames[0]);
+    clearTexture(*m_frames[1]);
+
+    m_tileScheduler.configure(resolution, m_tileSize);
+    reset();
 }
 
-void RayTracer::reset() {
+void GLRayTracer::reset() {
     m_frameCount = 1;
     m_frameIndex = 0;
+    m_tileScheduler.resetSamples();
 }
 
+void GLRayTracer::setTilesPerFrame(int tilesPerFrame) {
+    m_tilesPerFrame = std::max(1, tilesPerFrame);
+}
+
+void GLRayTracer::setTileSize(glm::ivec2 tileSize) {
+    m_tileSize = { std::max(1, tileSize.x), std::max(1, tileSize.y) };
+    m_tileScheduler.configure(m_resolution, m_tileSize);
+    reset();
+}
+
+void GLRayTracer::endFrame() {
+    glDisable(GL_SCISSOR_TEST);
+    m_frameIndex = !m_frameIndex;
+    ++m_frameCount;
+}

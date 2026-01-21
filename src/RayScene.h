@@ -69,6 +69,13 @@ public:
     i32 getMaterialCount() const { return m_materials.size(); }
     inline u32 getObjectsCount() const { return static_cast<u32>(m_traceableObjects.size()); }
     inline u32 getModelsCount() const { return static_cast<u32>(m_modelObjects.size()); }
+    inline const std::vector<std::unique_ptr<Model>>& getModelObjects() const { return m_modelObjects; }
+    inline const std::vector<Material>& getMaterials() const { return m_materials; }
+    inline const std::vector<f32>& getTexturesBuffer() const { return m_texturesBuffer; }
+    inline const std::vector<f32>& getMaterialsBuffer() const { return m_materialsBuffer; }
+    inline const std::vector<i32>& getMaterialTexturesBuffer() const { return m_materialTexturesBuffer; }
+    inline const std::vector<f32>& getModelObjectsBuffer() const { return m_modelObjectsBuffer; }
+    inline const std::vector<f32>& getObjectsBuffer() const { return m_objectsBuffer; }
 
     void addModel(const std::string &modelPath);
 

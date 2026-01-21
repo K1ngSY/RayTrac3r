@@ -102,6 +102,13 @@ namespace gl {
         }
     }
 
+    void ShaderProgram::setUniform4i(const std::string &name, i32 v0, i32 v1, i32 v2, i32 v3) {
+        int id = uniform_location(name);
+        if (id != -1) {
+            GLCALL(glUniform4i(id, v0, v1, v2, v3));
+        }
+    }
+
     void ShaderProgram::setUniform1u(const std::string &name, u32 v0) {
         int id = uniform_location(name);
         if (id != -1) {
