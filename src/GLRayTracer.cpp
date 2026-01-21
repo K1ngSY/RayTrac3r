@@ -1092,6 +1092,36 @@ static void clearTexture(gl::Texture2D &texture) {
     framebuffer.unbind();
 }
 
+GLRayTracer::~GLRayTracer() {
+    if (m_copyReadFbo != 0) {
+        glDeleteFramebuffers(1, &m_copyReadFbo);
+        m_copyReadFbo = 0;
+    }
+}
+
+void GLRayTracer::copyPreviousFrameToCurrent() {
+    if (m_copyReadFbo == 0) {
+        glGenFramebuffers(1, &m_copyReadFbo);
+    }
+
+    GLint prevReadFbo = 0;
+    GLint prevReadBuffer = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFbo);
+    glGetIntegerv(GL_READ_BUFFER, &prevReadBuffer);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_copyReadFbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           getPreviousFrame().getId(), 0);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+    glBlitFramebuffer(0, 0, m_resolution.x, m_resolution.y,
+                      0, 0, m_resolution.x, m_resolution.y,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, prevReadFbo);
+    glReadBuffer(static_cast<GLenum>(prevReadBuffer));
+}
+
 void GLRayTracer::TileScheduler::configure(glm::ivec2 resolution, glm::ivec2 tileSize) {
     m_resolution = { std::max(1, resolution.x), std::max(1, resolution.y) };
     m_tileSize = { std::max(1, tileSize.x), std::max(1, tileSize.y) };
@@ -1163,10 +1193,16 @@ bool GLRayTracer::initialize(glm::ivec2 resolution) {
     clearTexture(*m_frames[1]);
 
     m_tileScheduler.configure(resolution, m_tileSize);
+    m_needsFrameCopy = false;
     return true;
 }
 
 void GLRayTracer::renderToTexture(const RayCamera &camera, const RayScene &scene) {
+    if (m_needsFrameCopy) {
+        copyPreviousFrameToCurrent();
+        m_needsFrameCopy = false;
+    }
+
     m_shader->bind();
 
     getPreviousFrame().bind(0);
@@ -1225,6 +1261,7 @@ void GLRayTracer::changeResolution(glm::ivec2 resolution) {
 
     m_tileScheduler.configure(resolution, m_tileSize);
     reset();
+    m_needsFrameCopy = false;
 }
 
 void GLRayTracer::reset() {
@@ -1247,4 +1284,5 @@ void GLRayTracer::endFrame() {
     glDisable(GL_SCISSOR_TEST);
     m_frameIndex = !m_frameIndex;
     ++m_frameCount;
+    m_needsFrameCopy = true;
 }

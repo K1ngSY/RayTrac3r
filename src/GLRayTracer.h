@@ -52,9 +52,15 @@ private:
     glm::ivec2 m_tileSize = { 128, 128 };
     int m_tilesPerFrame = 4;
     TileScheduler m_tileScheduler;
+    u32 m_copyReadFbo = 0;
+    bool m_needsFrameCopy = false;
+
+private:
+    void copyPreviousFrameToCurrent();
 
 public:
     explicit GLRayTracer() = default;
+    ~GLRayTracer() override;
     bool initialize(glm::ivec2 resolution) override;
     void renderToTexture(const RayCamera &camera, const RayScene &scene) override;
     void changeResolution(glm::ivec2 resolution) override;
