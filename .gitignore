@@ -1,5 +1,14 @@
 .DS_Store
 
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+__MACOSX
+
 build/
 
 compile_commands.json
